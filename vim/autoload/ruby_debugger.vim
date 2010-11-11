@@ -368,6 +368,20 @@ function! RubyDebugger.start(...) dict
   call g:RubyDebugger.queue.execute()
 endfunction
 
+" Attach to an existing server
+function! RubyDebugger.attach(...) dict
+	let hostname = a:1
+	let rdebug_port = a:2
+  let g:RubyDebugger.server = s:Server.new(hostname, rdebug_port, s:debugger_port, s:runtime_dir, s:tmp_file, s:server_output_file)
+  
+	echo "Attaching debugger..."
+  call g:RubyDebugger.server.attach()
+
+  let g:RubyDebugger.exceptions = []
+  for breakpoint in g:RubyDebugger.breakpoints
+    call g:RubyDebugger.queue.add(breakpoint.command())
+  endfor
+endfunction
 
 " Stop running server.
 function! RubyDebugger.stop() dict
@@ -1802,7 +1816,30 @@ function! s:Server.new(hostname, rdebug_port, debugger_port, runtime_dir, tmp_fi
 endfunction
 
 
-" Start the server. It will kill any listeners on given ports before.
+" Attach to the server.
+function! s:Server.attach() dict
+  call self._stop_server(self.debugger_port)
+  " Remove leading and trailing quotes
+  let os = has("win32") || has("win64") ? 'win' : 'posix'
+  " Example - ruby ~/.vim/bin/ruby_debugger.rb 39767 39768 vim VIM /home/anton/.vim/tmp/ruby_debugger posix
+  let debugger_parameters = ' ' . self.hostname . ' ' . self.rdebug_port . ' ' . self.debugger_port . ' ' . g:ruby_debugger_progname . ' ' . v:servername . ' "' . self.tmp_file . '" ' . os
+
+  " Start in background
+  if has("win32") || has("win64")
+    let debugger = 'ruby "' . expand(self.runtime_dir . "/bin/ruby_debugger.rb") . '"' . debugger_parameters
+    silent exe '! start ' . debugger
+  else
+    let debugger = 'ruby ' . expand(self.runtime_dir . "/bin/ruby_debugger.rb") . debugger_parameters
+    call system(debugger. ' &')
+  endif
+
+  " Set PIDs of processes
+  let self.rdebug_pid = self._get_pid(self.rdebug_port, 1)
+  let self.debugger_pid = self._get_pid(self.debugger_port, 1)
+
+  call g:RubyDebugger.logger.put("Attach debugger")
+endfunction  
+
 function! s:Server.start(script) dict
   call self._stop_server(self.rdebug_port)
   call self._stop_server(self.debugger_port)
